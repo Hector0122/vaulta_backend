@@ -18,6 +18,9 @@ dotenv.config({ path: '.env.local' });
 const MATCH_THRESHOLD = 0.45;
 const MATCH_RATIO = 1.2;
 const FACE_DETECT_MAX_WIDTH = 1024;
+// Keep in sync with src/faces/face-detect.mjs.
+const FACE_INPUT_SIZE = 608;
+const FACE_MIN_SCORE = 0.2;
 const CHECKPOINT_FILE = 'scan-state.json';
 const TMP_DIR = path.join(os.tmpdir(), 'vaulta-scan-local');
 
@@ -210,12 +213,9 @@ async function ensureModels(): Promise<void> {
   if (faceapi) return;
 
   const modPath = path.join(process.cwd(), 'models', 'face-api');
-  faceapi = await import('@vladmandic/face-api');
+  // The node build runs on the native TensorFlow binding (@tensorflow/tfjs-node).
+  faceapi = require('@vladmandic/face-api/dist/face-api.node.js');
   tf = faceapi.tf;
-  if (!tf) {
-    const tfjsMod = await import('@tensorflow/tfjs-node');
-    tf = tfjsMod;
-  }
 
   await faceapi.nets.tinyFaceDetector.loadFromDisk(modPath);
   await faceapi.nets.faceLandmark68Net.loadFromDisk(modPath);
@@ -226,6 +226,7 @@ async function runDetection(imagePath: string): Promise<DetectedFace[]> {
   await ensureModels();
 
   const { data, info } = await sharp(fs.readFileSync(imagePath))
+    .rotate()
     .resize(FACE_DETECT_MAX_WIDTH, FACE_DETECT_MAX_WIDTH, {
       fit: 'inside',
       withoutEnlargement: true,
@@ -248,8 +249,8 @@ async function runDetection(imagePath: string): Promise<DetectedFace[]> {
         .detectAllFaces(
           input,
           new faceapi.TinyFaceDetectorOptions({
-            inputSize: 320,
-            scoreThreshold: 0.1,
+            inputSize: FACE_INPUT_SIZE,
+            scoreThreshold: FACE_MIN_SCORE,
           }),
         )
         .withFaceLandmarks()

@@ -10,10 +10,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const MODELS_DIR = path.join(__dirname, '..', '..', 'models', 'face-api')
 
 const FACE_DETECT_MAX_WIDTH = 1024
+// 320 missed most faces in older/smaller photos; keep in sync with scripts/scan-local.ts.
+const FACE_INPUT_SIZE = 608
+const FACE_MIN_SCORE = 0.2
 
 async function detect(imagePath) {
-  const faceapi = await import('@vladmandic/face-api')
-  const tf = faceapi.tf || (await import('@tensorflow/tfjs'))
+  // The node build runs on the native TensorFlow binding (@tensorflow/tfjs-node).
+  const faceapi = require('@vladmandic/face-api/dist/face-api.node.js')
+  const tf = faceapi.tf
 
   await faceapi.nets.tinyFaceDetector.loadFromDisk(MODELS_DIR)
   await faceapi.nets.faceLandmark68Net.loadFromDisk(MODELS_DIR)
@@ -21,6 +25,7 @@ async function detect(imagePath) {
 
   const sharp = (await import('sharp')).default
   const { data, info } = await sharp(fs.readFileSync(imagePath))
+    .rotate()
     .resize(FACE_DETECT_MAX_WIDTH, FACE_DETECT_MAX_WIDTH, { fit: 'inside', withoutEnlargement: true })
     .removeAlpha()
     .raw()
@@ -33,8 +38,8 @@ async function detect(imagePath) {
     .detectAllFaces(
       input,
       new faceapi.TinyFaceDetectorOptions({
-        inputSize: 320,
-        scoreThreshold: 0.1,
+        inputSize: FACE_INPUT_SIZE,
+        scoreThreshold: FACE_MIN_SCORE,
       }),
     )
     .withFaceLandmarks()

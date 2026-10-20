@@ -22,6 +22,22 @@ export interface DetectedFace {
   boxHeight: number;
 }
 
+type Box = { boxX: number; boxY: number; boxWidth: number; boxHeight: number };
+
+/** True when two face boxes are the same face (intersection over union > 0.3). */
+export function boxesOverlap(a: Box, b: Box): boolean {
+  const w =
+    Math.min(a.boxX + a.boxWidth, b.boxX + b.boxWidth) -
+    Math.max(a.boxX, b.boxX);
+  const h =
+    Math.min(a.boxY + a.boxHeight, b.boxY + b.boxHeight) -
+    Math.max(a.boxY, b.boxY);
+  if (w <= 0 || h <= 0) return false;
+  const inter = w * h;
+  const union = a.boxWidth * a.boxHeight + b.boxWidth * b.boxHeight - inter;
+  return inter / union > 0.3;
+}
+
 @Injectable()
 export class FacesService implements OnModuleInit {
   private readonly logger = new Logger(FacesService.name);
@@ -430,17 +446,33 @@ export class FacesService implements OnModuleInit {
         });
         if (!photo || photo.userId !== userId || photo.private) return;
 
-        await tx.face.deleteMany({ where: { photoId: result.photoId } });
+        // A rescan replaces only untouched detections: faces the user named,
+        // confirmed or ignored stay, and new detections on top of them are dropped.
+        const isUntouched = {
+          personName: null,
+          confirmed: false,
+          ignored: false,
+        };
+        await tx.face.deleteMany({
+          where: { photoId: result.photoId, ...isUntouched },
+        });
+        const kept = await tx.face.findMany({
+          where: { photoId: result.photoId },
+          select: { boxX: true, boxY: true, boxWidth: true, boxHeight: true },
+        });
         await tx.photo.update({
           where: { id: result.photoId },
           data: { facesScannedAt: new Date() },
         });
         processed++;
 
-        if (result.faces.length === 0) return;
+        const newFaces = result.faces.filter(
+          (f) => !kept.some((k) => boxesOverlap(f, k)),
+        );
+        if (newFaces.length === 0) return;
 
         await tx.face.createMany({
-          data: result.faces.map((f) => ({
+          data: newFaces.map((f) => ({
             photoId: result.photoId,
             encoding: f.encoding,
             boxX: f.boxX,
@@ -452,7 +484,7 @@ export class FacesService implements OnModuleInit {
           })),
         });
 
-        facesFound += result.faces.length;
+        facesFound += newFaces.length;
       });
     }
 
