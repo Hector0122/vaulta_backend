@@ -30,7 +30,6 @@ import * as jwt from 'jsonwebtoken';
 import { PhotosService } from './photos.service';
 import { AnalysisService } from '../analysis/analysis.service';
 import {
-  PRESIGN_EXPIRY,
   ALLOWED_MIMES,
   MAX_FILE_SIZE,
   BATCH_MAX_FILES,
@@ -227,20 +226,6 @@ export class PhotosController {
     return this.photosService.getPhotoDetail(user.id, id);
   }
 
-  @Get('photos/:id/share')
-  async getShareLink(
-    @CurrentUser() user: { id: string },
-    @Param('id') id: string,
-    @Query('expiresIn') expiresIn?: string,
-  ) {
-    const url = await this.photosService.getShareLink(
-      user.id,
-      id,
-      expiresIn ? parseInt(expiresIn, 10) : PRESIGN_EXPIRY,
-    );
-    return { url };
-  }
-
   @Patch('photos/:id/favorite')
   @HttpCode(HttpStatus.OK)
   async toggleFavorite(
@@ -337,19 +322,6 @@ export class PhotosController {
   @HttpCode(HttpStatus.OK)
   async emptyTrash(@CurrentUser() user: { id: string }) {
     return this.photosService.emptyTrash(user.id);
-  }
-
-  @Delete('photos/all')
-  @HttpCode(HttpStatus.OK)
-  async nukeAllPhotos(
-    @CurrentUser() user: { id: string },
-    @Body('confirm') confirm: string,
-  ) {
-    if (confirm !== 'DELETE_ALL')
-      throw new BadRequestException(
-        'Envía { "confirm": "DELETE_ALL" } para confirmar',
-      );
-    return this.photosService.nukeAllPhotos(user.id);
   }
 
   @Delete('photos/:id')

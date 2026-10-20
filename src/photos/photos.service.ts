@@ -2,7 +2,6 @@ import {
   Injectable,
   Inject,
   NotFoundException,
-  BadRequestException,
   UnprocessableEntityException,
   Logger,
   OnModuleInit,
@@ -20,7 +19,6 @@ import { PrismaService } from '../prisma.service';
 import { S3_CLIENT, getBucketName, stableSigning } from '../common/s3.provider';
 import { FirebaseService } from '../firebase/firebase.service';
 import { FacesService } from '../faces/faces.service';
-import { PRESIGN_EXPIRY } from '../common/constants';
 
 @Injectable()
 export class PhotosService implements OnModuleInit {
@@ -413,23 +411,6 @@ export class PhotosService implements OnModuleInit {
       contentRange: response.ContentRange as string | undefined,
       isPartial: !!range,
     };
-  }
-
-  async getShareLink(
-    userId: string,
-    photoId: string,
-    expiresIn: number = PRESIGN_EXPIRY,
-  ): Promise<string> {
-    const bucket = getBucketName();
-    const photo = await this.findOwnedPhoto(photoId, userId);
-    if (photo.private)
-      throw new BadRequestException('No se puede compartir una foto privada');
-
-    return getSignedUrl(
-      this.s3,
-      new GetObjectCommand({ Bucket: bucket, Key: photo.s3Key }),
-      { expiresIn },
-    );
   }
 
   async toggleFavorite(userId: string, photoId: string): Promise<boolean> {
@@ -852,35 +833,6 @@ export class PhotosService implements OnModuleInit {
     );
 
     await this.prisma.photo.delete({ where: { id: photoId } });
-  }
-
-  async nukeAllPhotos(userId: string): Promise<{ deleted: number }> {
-    const bucket = getBucketName();
-
-    const all = await this.prisma.photo.findMany({
-      where: { userId },
-      select: { id: true, s3Key: true, thumbS3Key: true },
-    });
-
-    if (all.length === 0) return { deleted: 0 };
-
-    const s3Keys = all.flatMap((p) => {
-      const keys = [
-        this.resolveS3Key(p.s3Key, p.s3Key, 'uploads'),
-        this.resolveS3Key(p.thumbS3Key, p.s3Key, 'thumbnails'),
-      ];
-      return keys;
-    });
-
-    await Promise.allSettled(
-      s3Keys.map((key) =>
-        this.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })),
-      ),
-    );
-
-    await this.prisma.photo.deleteMany({ where: { userId } });
-
-    return { deleted: all.length };
   }
 
   async emptyTrash(userId: string): Promise<{ deleted: number }> {

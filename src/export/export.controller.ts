@@ -23,12 +23,6 @@ export class ExportController {
     return this.exportService.getExportStatus(id, user.id);
   }
 
-  @Post('photos/export')
-  @HttpCode(HttpStatus.OK)
-  async exportPhotos(@CurrentUser() user: { id: string }) {
-    return this.exportService.startAllExport(user.id);
-  }
-
   @Post('albums/:id/export')
   @HttpCode(HttpStatus.OK)
   async exportAlbum(

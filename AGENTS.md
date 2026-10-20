@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Photo-sharing app: React Native frontend (Android) + NestJS backend + Neon (PostgreSQL) + Cloudflare R2 (S3-compatible storage). Server-side thumbnail generation via `sharp`, AI analysis (blur + perceptual hash), push notifications (Firebase), and email export via Mailgun.
+Photo-sharing app: React Native frontend (Android) + NestJS backend + Neon (PostgreSQL) + Cloudflare R2 (S3-compatible storage). Server-side thumbnail generation via `sharp`, duplicate detection (perceptual hash), push notifications (Firebase), and email export via Mailgun.
 
 ## Project structure
 
@@ -50,7 +50,6 @@ PersonalProject/
     │   │
     │   ├── analysis/               # Image analysis (perceptual hash)
     │   │   ├── analysis.module.ts
-    │   │   ├── analysis.controller.ts  # POST /photos/:id/analyze, GET /photos/duplicates
     │   │   └── analysis.service.ts     # computePerceptualHash (delegates to common/image-analysis.ts)
     │   │
     │   ├── migration/              # S3 → DB migration utilities
@@ -72,7 +71,7 @@ PersonalProject/
     │   │
     │   └── common/                 # Shared modules
     │       ├── constants.ts         # Centralized constants (thumb 400px/70%, ALLOWED_MIMES, etc.)
-    │       ├── image-analysis.ts    # computeBlurScore, computePerceptualHash (extracted from 3 files)
+    │       ├── image-analysis.ts    # computePerceptualHash
     │       ├── s3.module.ts
     │       ├── s3.provider.ts      # S3 client factory (R2 if R2_ACCOUNT_ID set, else AWS) + getBucketName()
     │       ├── sanitize.ts          # Sanitization utilities
@@ -96,7 +95,6 @@ PersonalProject/
 
 - **adb reverse tcp:3000 tcp:3000** — device reaches backend via USB
 - **Server-side thumbnails** via `sharp` (400px, 70% quality, EXIF-rotated) + `fluent-ffmpeg` for videos
-- **Blur detection**: downsample to 800x800, grayscale, gradient variance; score < 10 = blurred
 - **Perceptual hash**: 8x8 grayscale, average-threshold, 64-bit hex for duplicate detection
 - **Face detection**: TinyFaceDetector via `@vladmandic/face-api` running in ESM child process (`.mjs`), image decoding via `sharp`, face descriptors (FaceNet 128-dim) stored as JSON, euclidean distance < 0.6 for grouping. Models bundled in repo at `models/face-api/`
 - **Worker threads** (`upload.worker.ts`, `export.worker.ts`) — CPU-heavy tasks off main thread

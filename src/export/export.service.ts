@@ -1,16 +1,14 @@
 import {
   Injectable,
-  Inject,
   NotFoundException,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { S3Client } from '@aws-sdk/client-s3';
 import { Worker } from 'worker_threads';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { PrismaService } from '../prisma.service';
-import { S3_CLIENT, getBucketName } from '../common/s3.provider';
+import { getBucketName } from '../common/s3.provider';
 import { FirebaseService } from '../firebase/firebase.service';
 import { ExportProgress } from './export.types';
 
@@ -21,7 +19,6 @@ export class ExportService {
 
   constructor(
     private prisma: PrismaService,
-    @Inject(S3_CLIENT) private s3: S3Client,
     private firebase: FirebaseService,
   ) {}
 
@@ -32,14 +29,6 @@ export class ExportService {
     const exp = this._exports.get(exportId);
     if (!exp || exp.userId !== userId) return { status: 'not_found' };
     return exp;
-  }
-
-  async startAllExport(userId: string): Promise<{ exportId: string }> {
-    const photos = await this.prisma.photo.findMany({
-      where: { userId, deletedAt: null, private: false },
-      select: { s3Key: true, filename: true },
-    });
-    return this._startExport(userId, photos, 'todas las fotos');
   }
 
   async startAlbumExport(

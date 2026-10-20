@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Post,
-  Query,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Post, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { MigrationService } from './migration.service';
 

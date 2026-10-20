@@ -170,64 +170,6 @@ export class FacesService implements OnModuleInit {
     });
   }
 
-  async detectFacesWithDebug(
-    photoId: string,
-    userId: string,
-  ): Promise<{ faces: DetectedFace[]; stderr: string; ready: boolean }> {
-    if (!this._ready) {
-      return { faces: [], stderr: `Not ready: ${this._error}`, ready: false };
-    }
-
-    const photo = await this.prisma.photo.findUnique({
-      where: { id: photoId },
-      select: { s3Key: true, mimeType: true, userId: true },
-    });
-
-    if (!photo || photo.userId !== userId) {
-      return { faces: [], stderr: 'Photo not found', ready: this._ready };
-    }
-
-    if (photo.mimeType.startsWith('video/')) {
-      return { faces: [], stderr: 'Video, skipping', ready: this._ready };
-    }
-
-    const tmpDir = path.join(os.tmpdir(), 'vaulta-faces');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-
-    const tmpFile = path.join(
-      tmpDir,
-      `${photoId}${path.extname(photo.s3Key) || '.jpg'}`,
-    );
-
-    try {
-      const buffer = await this.getImageBuffer(photo.s3Key);
-      fs.writeFileSync(tmpFile, buffer);
-
-      const result = await this.runDetection(tmpFile);
-
-      try {
-        fs.unlinkSync(tmpFile);
-      } catch {
-        /* ignore */
-      }
-
-      return { faces: result.faces, stderr: result.stderr, ready: this._ready };
-    } catch (err) {
-      try {
-        fs.unlinkSync(tmpFile);
-      } catch {
-        /* ignore */
-      }
-      return {
-        faces: [],
-        stderr: `Error: ${(err as Error).message}`,
-        ready: this._ready,
-      };
-    }
-  }
-
   async detectFaces(photoId: string, userId: string): Promise<DetectedFace[]> {
     if (!this._ready) {
       this.logger.warn('Face detection not ready, skipping');
@@ -861,63 +803,6 @@ export class FacesService implements OnModuleInit {
     return { photos: results, nextToken };
   }
 
-  async getStats(userId: string): Promise<{
-    totalFaces: number;
-    peopleCount: number;
-    byPerson: { name: string; faceCount: number; photoCount: number }[];
-  }> {
-    const [totalFaces, peopleResult, allPersonData] = await Promise.all([
-      this.prisma.face.count({
-        where: {
-          photo: { userId, deletedAt: null, private: false },
-          ignored: false,
-        },
-      }),
-      this.prisma.face.groupBy({
-        by: ['personName'],
-        where: {
-          photo: { userId, deletedAt: null, private: false },
-          personName: { not: null },
-          confirmed: true,
-          ignored: false,
-        },
-        _count: { id: true },
-      }),
-      this.prisma.face.findMany({
-        where: {
-          photo: { userId, deletedAt: null, private: false },
-          personName: { not: null },
-          confirmed: true,
-          ignored: false,
-        },
-        select: { personName: true, photoId: true },
-        distinct: ['personName', 'photoId'],
-      }),
-    ]);
-
-    const photoCounts = new Map<string, Set<string>>();
-    for (const f of allPersonData) {
-      if (!f.personName) continue;
-      let set = photoCounts.get(f.personName);
-      if (!set) {
-        set = new Set();
-        photoCounts.set(f.personName, set);
-      }
-      set.add(f.photoId);
-    }
-
-    const byPerson = peopleResult
-      .filter((p) => p.personName)
-      .map((p) => ({
-        name: p.personName!,
-        faceCount: p._count.id,
-        photoCount: photoCounts.get(p.personName!)?.size ?? 0,
-      }))
-      .sort((a, b) => b.photoCount - a.photoCount);
-
-    return { totalFaces, peopleCount: byPerson.length, byPerson };
-  }
-
   async updateFace(
     faceId: string,
     userId: string,
@@ -956,18 +841,6 @@ export class FacesService implements OnModuleInit {
     return { ...updated, suggestedTag };
   }
 
-  async deleteFace(faceId: string, userId: string) {
-    const face = await this.prisma.face.findUnique({
-      where: { id: faceId },
-      select: { id: true, photo: { select: { userId: true } } },
-    });
-
-    if (!face || face.photo.userId !== userId)
-      throw new Error('Face not found');
-
-    await this.prisma.face.delete({ where: { id: faceId } });
-  }
-
   async deleteFacesByPhoto(
     photoId: string,
     userId: string,
@@ -985,23 +858,6 @@ export class FacesService implements OnModuleInit {
 
     const { count } = await this.prisma.face.deleteMany({ where });
     return { deleted: count };
-  }
-
-  async confirmAllForPerson(
-    userId: string,
-    personName: string,
-  ): Promise<number> {
-    const result = await this.prisma.face.updateMany({
-      where: {
-        photo: { userId, private: false },
-        personName,
-        confirmed: false,
-        ignored: false,
-      },
-      data: { confirmed: true },
-    });
-
-    return result.count;
   }
 
   async mergePeople(
@@ -1140,28 +996,6 @@ export class FacesService implements OnModuleInit {
       worker.on('exit', (code) => {
         if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
       });
-    });
-  }
-
-  async getFacesByPhoto(photoId: string, userId: string) {
-    const photo = await this.prisma.photo.findUnique({
-      where: { id: photoId },
-      select: { userId: true },
-    });
-
-    if (!photo || photo.userId !== userId) return [];
-
-    return this.prisma.face.findMany({
-      where: { photoId, ignored: false },
-      select: {
-        id: true,
-        boxX: true,
-        boxY: true,
-        boxWidth: true,
-        boxHeight: true,
-        personName: true,
-        confirmed: true,
-      },
     });
   }
 

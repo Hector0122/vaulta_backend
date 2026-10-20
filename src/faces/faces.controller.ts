@@ -15,7 +15,6 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator';
 import { FacesService } from './faces.service';
 import { UpdateFaceDto } from './dto/update-face.dto';
-import { DetectBatchDto } from './dto/detect-batch.dto';
 import { MergePeopleDto } from './dto/merge-people.dto';
 import { IngestFacesDto } from './dto/ingest-faces.dto';
 import { sanitize } from '../common/sanitize';
@@ -28,43 +27,6 @@ import {
 @Controller('faces')
 export class FacesController {
   constructor(private readonly facesService: FacesService) {}
-
-  @Get('status')
-  getStatus() {
-    return {
-      ready: this.facesService.ready,
-      error: this.facesService.lastError || null,
-      modelsDir: process.cwd() + '/models/face-api',
-    };
-  }
-
-  @Post('detect/:photoId')
-  @HttpCode(HttpStatus.OK)
-  async detectFaces(
-    @CurrentUser() user: { id: string },
-    @Param('photoId') photoId: string,
-  ) {
-    const count = await this.facesService.detectAndSave(photoId, user.id);
-    return { facesFound: count };
-  }
-
-  @Post('debug/detect/:photoId')
-  @HttpCode(HttpStatus.OK)
-  async detectFacesDebug(
-    @CurrentUser() user: { id: string },
-    @Param('photoId') photoId: string,
-  ) {
-    return this.facesService.detectFacesWithDebug(photoId, user.id);
-  }
-
-  @Post('detect-batch')
-  @HttpCode(HttpStatus.OK)
-  async detectBatch(
-    @CurrentUser() user: { id: string },
-    @Body() dto: DetectBatchDto,
-  ) {
-    return this.facesService.detectBatch(user.id, dto.photoIds);
-  }
 
   @Post('detect-all')
   @HttpCode(HttpStatus.OK)
@@ -173,11 +135,6 @@ export class FacesController {
     );
   }
 
-  @Get('stats')
-  async getStats(@CurrentUser() user: { id: string }) {
-    return this.facesService.getStats(user.id);
-  }
-
   @Get('find-more')
   async findMoreFaces(
     @CurrentUser() user: { id: string },
@@ -189,14 +146,6 @@ export class FacesController {
     if (!sanitized)
       throw new BadRequestException('person is empty after sanitization');
     return this.facesService.findMoreFaces(user.id, sanitized);
-  }
-
-  @Get('photo/:photoId')
-  async getFacesByPhoto(
-    @CurrentUser() user: { id: string },
-    @Param('photoId') photoId: string,
-  ) {
-    return this.facesService.getFacesByPhoto(photoId, user.id);
   }
 
   @Patch(':id')
@@ -220,31 +169,6 @@ export class FacesController {
   ) {
     const sanitized = person ? sanitize(person, 50) : undefined;
     return this.facesService.deleteFacesByPhoto(photoId, user.id, sanitized);
-  }
-
-  @Delete(':id')
-  @HttpCode(HttpStatus.OK)
-  async deleteFace(
-    @CurrentUser() user: { id: string },
-    @Param('id') id: string,
-  ) {
-    await this.facesService.deleteFace(id, user.id);
-    return { deleted: true };
-  }
-
-  @Post('confirm-all')
-  @HttpCode(HttpStatus.OK)
-  async confirmAll(
-    @CurrentUser() user: { id: string },
-    @Body('personName') personName: string,
-  ) {
-    if (!personName || typeof personName !== 'string')
-      throw new BadRequestException('personName is required');
-    const count = await this.facesService.confirmAllForPerson(
-      user.id,
-      sanitize(personName, 50),
-    );
-    return { confirmed: count };
   }
 
   @Post('merge')
