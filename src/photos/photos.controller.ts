@@ -132,6 +132,14 @@ export class PhotosController {
     return { batchId };
   }
 
+  @Get('photos/upload-batch/:batchId/status')
+  getUploadBatchStatus(
+    @CurrentUser() user: { id: string },
+    @Param('batchId') batchId: string,
+  ) {
+    return this.photosService.getBatchStatus(batchId, user.id);
+  }
+
   @Get('photos/this-day')
   async getThisDayPhotos(
     @CurrentUser() user: { id: string },

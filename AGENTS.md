@@ -72,7 +72,7 @@ PersonalProject/
     │   │   └── dto/
     │   │
     │   └── common/                 # Shared modules
-    │       ├── constants.ts         # Centralized constants (604800, 300, 70, ALLOWED_MIMES, etc.)
+    │       ├── constants.ts         # Centralized constants (thumb 400px/70%, ALLOWED_MIMES, etc.)
     │       ├── image-analysis.ts    # computeBlurScore, computePerceptualHash (extracted from 3 files)
     │       ├── s3.module.ts
     │       ├── s3.provider.ts      # S3 client factory (R2 if R2_ACCOUNT_ID set, else AWS) + getBucketName()
@@ -96,7 +96,7 @@ PersonalProject/
 ## Key technical decisions
 
 - **adb reverse tcp:3000 tcp:3000** — device reaches backend via USB
-- **Server-side thumbnails** via `sharp` (300px, 70% quality) + `fluent-ffmpeg` for videos
+- **Server-side thumbnails** via `sharp` (400px, 70% quality, EXIF-rotated) + `fluent-ffmpeg` for videos
 - **Blur detection**: downsample to 800x800, grayscale, gradient variance; score < 10 = blurred
 - **Perceptual hash**: 8x8 grayscale, average-threshold, 64-bit hex for duplicate detection
 - **Face detection**: TinyFaceDetector via `@vladmandic/face-api` running in ESM child process (`.mjs`), image decoding via `sharp`, face descriptors (FaceNet 128-dim) stored as JSON, euclidean distance < 0.6 for grouping. Models bundled in repo at `models/face-api/`

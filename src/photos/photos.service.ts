@@ -31,6 +31,7 @@ export class PhotosService implements OnModuleInit {
   private _batches = new Map<
     string,
     {
+      userId: string;
       status: string;
       completed: number;
       failed: number;
@@ -88,16 +89,18 @@ export class PhotosService implements OnModuleInit {
     }
   }
 
-  getBatchStatus(batchId: string) {
-    return (
-      this._batches.get(batchId) || {
+  getBatchStatus(batchId: string, userId: string) {
+    const batch = this._batches.get(batchId);
+    if (!batch || batch.userId !== userId) {
+      return {
         status: 'not_found',
         completed: 0,
         failed: 0,
         total: 0,
         message: '',
       }
-    );
+    }
+    return batch;
   }
 
   private async findOwnedPhoto(photoId: string, userId: string) {
@@ -119,6 +122,7 @@ export class PhotosService implements OnModuleInit {
     const batchId = crypto.randomUUID();
 
     this._batches.set(batchId, {
+      userId,
       status: 'pending',
       completed: 0,
       failed: 0,

@@ -15,7 +15,7 @@
 | 8 | **FAB animado expandible** | `frontend/pages/Home/index.tsx` — FAB principal con sub-botones animados (galería + cámara + video) |
 | 9 | **Filtro por rango de fechas** | `frontend/pages/Home/index.tsx` — modal con `Calendar` (`react-native-calendars`), selección inicio/fin en un solo paso, búsqueda automática; `backend/src/app.service.ts` — `createdAt` gte/lte en Prisma |
 | 10 | **Subida múltiple batch** (selección desde galería) + worker thread + notificación push al terminar | `frontend/pages/Upload/index.tsx` — `launchImageLibrary` con `selectionLimit: 0`, grid de thumbnails, fire-and-forget a `POST /photos/upload-batch`; `backend/src/photos/upload.worker.ts` — worker thread con S3 upload + thumbnail + blurScore + perceptualHash + DB insert + cleanup temp files; `backend/src/photos/photos.service.ts` — `startBatchUpload()` con mapa de progreso y Firebase notificación al completar |
-| 11 | **MasonryGrid custom** — Grid 2-columnas propio (reemplazó `react-native-masonry-list`) | `frontend/pages/Home/index.tsx` — implementación manual con `numColumns: 2` |
+| 11 | **Grid de fotos** — `FlashList` de 3 columnas cuadradas (reemplazó `react-native-masonry-list` y el grid de 2 columnas) | `frontend/pages/Home/index.tsx` — `numColumns={3}`, `PhotoGridItem` con `aspectRatio: 1` |
 | 14 | **Splash screen themable** — Fondo blanco (light), #121212 (dark) según tema | `frontend/theme.ts` |
 
 ### Organización
@@ -125,12 +125,12 @@
 | 2 | **JWT decoder** — `atob()` nativo + email/name en token | `AuthContext.tsx`, `auth.service.ts` |
 | 3 | **JWT_SECRET requerido** — Sin fallback hardcodeado | `auth.module.ts`, `jwt.strategy.ts` |
 | 4 | **Endpoints migración protegidos** — Requieren JWT | `app.controller.ts` |
-| 5 | **Presigned URLs** — Expiry 7 días | `app.service.ts` |
+| 5 | **Presigned URLs** — firmadas al inicio del día UTC, expiran a las 48h (`stableSigning()` en `common/s3.provider.ts`) | `app.service.ts` |
 | 6 | **Ownership en álbumes** — Verifica pertenencia | `albums/albums.service.ts` |
 | 7 | **deletePhoto** — Sin `.catch(() => {})` silencioso | `app.service.ts` |
 | 8 | **Home: toggle favoritos** — Ref para evitar stale closure | `frontend/pages/Home/index.tsx` |
 | 9 | **Batch download paralelo** — `Promise.allSettled` | `frontend/pages/Home/index.tsx` |
-| 10 | **Índices DB** — `@@index([userId])`, `[userId, favorite]`, `[userId, createdAt]` | `prisma/schema.prisma` |
+| 10 | **Índices DB** — `[userId, favorite]`, `[userId, createdAt]`, `[userId, deletedAt, createdAt]`, GIN en `tags` | `prisma/schema.prisma` |
 | 11 | **CORS** — `origin: env var o true` + `credentials: false` | `main.ts` |
 | 12 | **Demo user** — Email/password via `.env` | `prisma.service.ts` |
 | 13 | **Auto-sync S3** — Solo si `AUTO_SYNC_S3=true` | `app.service.ts` |
@@ -306,7 +306,7 @@ PersonalProject/
     │   │   ├── face-detect.mjs          # Child process ESM: face-api + sharp image decode
     │   │   └── dto/                     # UpdateFaceDto, DetectBatchDto, MergePeopleDto
     │   └── common/                      # Shared modules
-        │       ├── constants.ts              # Constantes centralizadas (604800, 300, 70, etc.)
+        │       ├── constants.ts              # Constantes centralizadas (thumb 400px, 70%, ALLOWED_MIMES, etc.)
         │       ├── image-analysis.ts         # computeBlurScore, computePerceptualHash extraídos
         │       ├── s3.module.ts
         │       ├── s3.provider.ts           # S3Client factory (R2 o AWS) con getBucketName()

@@ -112,7 +112,7 @@ async function run(input: ExportWorkerInput) {
   const downloadUrl = await getSignedUrl(
     s3,
     new GetObjectCommand({ Bucket: bucket, Key: zipKey }),
-    { expiresIn: 86400 },
+    { expiresIn: 259200 },
   );
 
   const mailgunDomain = process.env.SMTP_USER?.split('@')[1];
@@ -128,7 +128,7 @@ async function run(input: ExportWorkerInput) {
         `html=${encodeURIComponent(`
           <h2>Exportación completada</h2>
           <p>Tu exportación de ${label} con ${photos.length} foto(s) está lista.</p>
-          <p>Haz clic aquí para descargar (válido por 24 horas):</p>
+          <p>Haz clic aquí para descargar (válido por 72 horas):</p>
           <p><a href="${downloadUrl}" style="display:inline-block;padding:14px 32px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:8px;font-size:16px">Descargar ZIP</a></p>
           <p>O copia este enlace en tu navegador:</p>
           <p style="word-break:break-all;font-size:12px;color:#666">${downloadUrl}</p>
