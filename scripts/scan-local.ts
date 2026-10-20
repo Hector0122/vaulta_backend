@@ -482,9 +482,9 @@ async function main() {
 
   console.log('');
 
-  // Use page-based pagination. We start from page 1 and skip already-
-  // processed photos via processedIds. This avoids cursor-invalidation bugs
-  // when a cursor photo gets faces and is no longer returned by /pending.
+  // Ingested photos (with or without faces) get facesScannedAt and leave
+  // /pending, so we stay on the same page after a batch and only advance when
+  // a page holds nothing new (already-processed or previously failed photos).
   let page = 1;
   let processed = state.totalProcessed;
   let facesFound = state.totalFaces;
@@ -518,6 +518,7 @@ async function main() {
     const batch: PendingPhoto[] = [];
     for (const photo of pending.photos) {
       if (state.processedIds.has(photo.id)) continue;
+      if (state.failedIds.some((f) => f.photoId === photo.id)) continue;
       batch.push(photo);
       if (additionalMode && additionalDone + batch.length >= maxPhotos) break;
       if (
@@ -551,14 +552,8 @@ async function main() {
 
       if (r.status === 'fulfilled' && r.value) {
         const matchedFaces = matchFaces(r.value);
-
-        if (matchedFaces.length > 0) {
-          facesFound += matchedFaces.length;
-          pendingIngest.push({ photoId: photo.id, faces: matchedFaces });
-        } else {
-          state.processedIds.add(photo.id);
-          processed++;
-        }
+        facesFound += matchedFaces.length;
+        pendingIngest.push({ photoId: photo.id, faces: matchedFaces });
       } else {
         const errMsg =
           r.status === 'rejected'
@@ -617,7 +612,8 @@ async function main() {
 
     additionalDone += batch.length;
 
-    page++;
+    // Dry-run ingests nothing, so the same photos would come back on this page.
+    if (dryRun) page++;
 
     if (additionalMode) {
       state.totalProcessed = processed;

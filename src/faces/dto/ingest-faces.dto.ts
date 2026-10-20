@@ -41,8 +41,8 @@ class PhotoResultDto {
   @IsString()
   photoId: string;
 
+  // Empty means "scanned, no faces" — the photo still gets facesScannedAt.
   @IsArray()
-  @ArrayNotEmpty()
   @ValidateNested({ each: true })
   @Type(() => FaceResultDto)
   faces: FaceResultDto[];

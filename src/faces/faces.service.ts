@@ -8,11 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-import {
-  FACE_DETECT_CONCURRENCY,
-  FACE_DETECT_DEFAULT_LIMIT,
-  FACE_DETECT_MAX_LIMIT,
-} from '../common/constants';
+import { FACE_DETECT_CONCURRENCY } from '../common/constants';
 
 const MODELS_DIR = path.join(process.cwd(), 'models', 'face-api');
 const MATCH_THRESHOLD = 0.45;
@@ -31,21 +27,6 @@ export class FacesService implements OnModuleInit {
   private readonly logger = new Logger(FacesService.name);
   private _ready = false;
   private _error = '';
-
-  private scanJobs = new Map<
-    string,
-    {
-      status: 'running' | 'completed' | 'stopped';
-      total: number;
-      processed: number;
-      facesFound: number;
-      failed: number;
-      worker?: Worker;
-      userId: string;
-    }
-  >();
-
-  private activeScanUsers = new Set<string>();
 
   constructor(
     private prisma: PrismaService,
@@ -122,10 +103,8 @@ export class FacesService implements OnModuleInit {
     return candidates[0];
   }
 
-  private runDetection(
-    imagePath: string,
-  ): Promise<{ faces: DetectedFace[]; stderr: string }> {
-    return new Promise((resolve) => {
+  private runDetection(imagePath: string): Promise<DetectedFace[]> {
+    return new Promise((resolve, reject) => {
       const scriptPath = this.resolveScriptPath();
 
       const proc = spawn('node', [scriptPath, imagePath], {
@@ -145,10 +124,9 @@ export class FacesService implements OnModuleInit {
       });
 
       proc.on('error', (err) => {
-        resolve({
-          faces: [],
-          stderr: `spawn error: ${err.message}, scriptPath: ${scriptPath}`,
-        });
+        reject(
+          new Error(`spawn error: ${err.message}, scriptPath: ${scriptPath}`),
+        );
       });
 
       proc.on('close', (code) => {
@@ -159,12 +137,9 @@ export class FacesService implements OnModuleInit {
         }
         try {
           const result = JSON.parse(stdout);
-          resolve({ faces: result.faces || [], stderr });
+          resolve(result.faces || []);
         } catch {
-          resolve({
-            faces: [],
-            stderr: `parse error (code ${code}): ${stderr}`,
-          });
+          reject(new Error(`parse error (code ${code}): ${stderr}`));
         }
       });
     });
@@ -208,7 +183,7 @@ export class FacesService implements OnModuleInit {
       const buffer = await this.getImageBuffer(photo.s3Key);
       fs.writeFileSync(tmpFile, buffer);
 
-      const { faces } = await this.runDetection(tmpFile);
+      const faces = await this.runDetection(tmpFile);
 
       try {
         fs.unlinkSync(tmpFile);
@@ -226,17 +201,31 @@ export class FacesService implements OnModuleInit {
       this.logger.error(
         `Face detection failed for photo ${photoId}: ${(err as Error).message}`,
       );
-      return [];
+      throw err;
     }
+  }
+
+  private markScanned(photoId: string) {
+    return this.prisma.photo.update({
+      where: { id: photoId },
+      data: { facesScannedAt: new Date() },
+    });
   }
 
   async detectAndSave(photoId: string, userId: string): Promise<number> {
     const faces = await this.detectFaces(photoId, userId);
 
-    if (faces.length === 0) return 0;
+    if (faces.length === 0) {
+      await this.markScanned(photoId);
+      return 0;
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.face.deleteMany({ where: { photoId } });
+      await tx.photo.update({
+        where: { id: photoId },
+        data: { facesScannedAt: new Date() },
+      });
 
       await tx.face.createMany({
         data: faces.map((f) => ({
@@ -336,134 +325,6 @@ export class FacesService implements OnModuleInit {
     return { processed, facesFound, failed };
   }
 
-  async detectAll(
-    userId: string,
-    limit?: number,
-  ): Promise<{ jobId: string; total: number; status: string }> {
-    if (this.activeScanUsers.has(userId)) {
-      return { jobId: '', total: 0, status: 'already_running' };
-    }
-
-    let effectiveLimit = limit ?? FACE_DETECT_DEFAULT_LIMIT;
-    if (effectiveLimit < 1) effectiveLimit = FACE_DETECT_DEFAULT_LIMIT;
-    if (effectiveLimit > FACE_DETECT_MAX_LIMIT)
-      effectiveLimit = FACE_DETECT_MAX_LIMIT;
-
-    const photos = await this.prisma.photo.findMany({
-      where: {
-        userId,
-        deletedAt: null,
-        private: false,
-        mimeType: { not: { startsWith: 'video/' } },
-      },
-      select: { id: true, _count: { select: { faces: true } } },
-    });
-
-    let photoIds = photos.filter((p) => p._count.faces === 0).map((p) => p.id);
-
-    if (photoIds.length > effectiveLimit) {
-      photoIds = photoIds.slice(0, effectiveLimit);
-    }
-
-    if (photoIds.length === 0) {
-      return { jobId: '', total: 0, status: 'nothing_to_scan' };
-    }
-
-    const jobId = `scan_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    this.scanJobs.set(jobId, {
-      status: 'running',
-      total: photoIds.length,
-      processed: 0,
-      facesFound: 0,
-      failed: 0,
-      userId,
-    });
-    this.activeScanUsers.add(userId);
-
-    const releaseLock = () => {
-      this.activeScanUsers.delete(userId);
-    };
-
-    const worker = new Worker(path.join(__dirname, 'detect-all.worker.js'), {
-      workerData: { userId, photoIds, concurrency: FACE_DETECT_CONCURRENCY },
-    });
-
-    const job = this.scanJobs.get(jobId)!;
-    job.worker = worker;
-
-    worker.on('message', (msg: any) => {
-      const j = this.scanJobs.get(jobId);
-      if (!j) return;
-      if (msg.type === 'progress') {
-        j.processed = msg.processed;
-        j.facesFound = msg.facesFound;
-        j.failed = msg.failed;
-      } else if (msg.type === 'done') {
-        j.status = 'completed';
-        j.processed = msg.processed;
-        j.facesFound = msg.facesFound;
-        j.failed = msg.failed;
-        j.worker = undefined;
-        releaseLock();
-      } else if (msg.type === 'error') {
-        this.logger.error(`Scan worker error: ${msg.message}`);
-        if (msg.stack) this.logger.error(msg.stack);
-        j.status = 'stopped';
-        j.worker = undefined;
-        releaseLock();
-      }
-    });
-
-    worker.on('error', () => {
-      const j = this.scanJobs.get(jobId);
-      if (j) {
-        j.status = 'stopped';
-        j.worker = undefined;
-        releaseLock();
-      }
-    });
-
-    worker.on('exit', () => {
-      const j = this.scanJobs.get(jobId);
-      if (j && j.status === 'running') {
-        j.status = 'stopped';
-        j.worker = undefined;
-        releaseLock();
-      }
-    });
-
-    return { jobId, total: photoIds.length, status: 'started' };
-  }
-
-  getDetectProgress(jobId: string): {
-    status: string;
-    total: number;
-    processed: number;
-    facesFound: number;
-    failed: number;
-  } | null {
-    const job = this.scanJobs.get(jobId);
-    if (!job) return null;
-    return {
-      status: job.status,
-      total: job.total,
-      processed: job.processed,
-      facesFound: job.facesFound,
-      failed: job.failed,
-    };
-  }
-
-  stopDetectAll(jobId: string): boolean {
-    const job = this.scanJobs.get(jobId);
-    if (!job || job.status !== 'running') return false;
-    job.status = 'stopped';
-    if (job.worker) {
-      void job.worker.terminate();
-      job.worker = undefined;
-    }
-    return true;
-  }
-
   async getDetectStatus(
     userId: string,
   ): Promise<{ total: number; pending: number; detected: number }> {
@@ -473,10 +334,10 @@ export class FacesService implements OnModuleInit {
         deletedAt: null,
         mimeType: { not: { startsWith: 'video/' } },
       },
-      select: { id: true, _count: { select: { faces: true } } },
+      select: { facesScannedAt: true },
     });
     const total = photos.length;
-    const detected = photos.filter((p) => p._count.faces > 0).length;
+    const detected = photos.filter((p) => p.facesScannedAt).length;
     return { total, pending: total - detected, detected };
   }
 
@@ -496,7 +357,7 @@ export class FacesService implements OnModuleInit {
         deletedAt: null,
         private: false,
         mimeType: { startsWith: 'image/' },
-        faces: { none: {} },
+        facesScannedAt: null,
       },
       select: { id: true, s3Key: true },
       take: take + 1,
@@ -570,6 +431,11 @@ export class FacesService implements OnModuleInit {
         if (!photo || photo.userId !== userId || photo.private) return;
 
         await tx.face.deleteMany({ where: { photoId: result.photoId } });
+        await tx.photo.update({
+          where: { id: result.photoId },
+          data: { facesScannedAt: new Date() },
+        });
+        processed++;
 
         if (result.faces.length === 0) return;
 
@@ -586,7 +452,6 @@ export class FacesService implements OnModuleInit {
           })),
         });
 
-        processed++;
         facesFound += result.faces.length;
       });
     }

@@ -10,7 +10,6 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
-  NotFoundException,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { FacesService } from './faces.service';
@@ -18,51 +17,15 @@ import { UpdateFaceDto } from './dto/update-face.dto';
 import { MergePeopleDto } from './dto/merge-people.dto';
 import { IngestFacesDto } from './dto/ingest-faces.dto';
 import { sanitize } from '../common/sanitize';
-import {
-  FACE_DETECT_DEFAULT_LIMIT,
-  FACE_DETECT_MAX_LIMIT,
-  FACE_INGEST_MAX_PHOTOS,
-} from '../common/constants';
+import { FACE_INGEST_MAX_PHOTOS } from '../common/constants';
 
 @Controller('faces')
 export class FacesController {
   constructor(private readonly facesService: FacesService) {}
 
-  @Post('detect-all')
-  @HttpCode(HttpStatus.OK)
-  async detectAll(
-    @CurrentUser() user: { id: string },
-    @Query('limit') limit?: string,
-  ) {
-    let effectiveLimit = limit
-      ? parseInt(limit, 10)
-      : FACE_DETECT_DEFAULT_LIMIT;
-    if (isNaN(effectiveLimit) || effectiveLimit < 1) {
-      effectiveLimit = FACE_DETECT_DEFAULT_LIMIT;
-    }
-    if (effectiveLimit > FACE_DETECT_MAX_LIMIT) {
-      effectiveLimit = FACE_DETECT_MAX_LIMIT;
-    }
-    return this.facesService.detectAll(user.id, effectiveLimit);
-  }
-
   @Get('detect-status')
   async getDetectStatus(@CurrentUser() user: { id: string }) {
     return this.facesService.getDetectStatus(user.id);
-  }
-
-  @Get('detect-progress/:jobId')
-  getDetectProgress(@Param('jobId') jobId: string) {
-    const progress = this.facesService.getDetectProgress(jobId);
-    if (!progress) throw new NotFoundException('Job not found');
-    return progress;
-  }
-
-  @Post('detect-stop')
-  @HttpCode(HttpStatus.OK)
-  stopDetectAll(@Body('jobId') jobId: string) {
-    const stopped = this.facesService.stopDetectAll(jobId);
-    return { stopped };
   }
 
   @Get('pending')

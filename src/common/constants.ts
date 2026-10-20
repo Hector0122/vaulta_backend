@@ -20,6 +20,4 @@ export const ALLOWED_MIMES = [
 export const MAX_FILE_SIZE = 500 * 1024 * 1024;
 export const BATCH_MAX_FILES = 50;
 export const FACE_DETECT_CONCURRENCY = 5;
-export const FACE_DETECT_DEFAULT_LIMIT = 15;
-export const FACE_DETECT_MAX_LIMIT = 50;
 export const FACE_INGEST_MAX_PHOTOS = 100;
