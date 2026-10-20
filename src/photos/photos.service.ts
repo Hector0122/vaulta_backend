@@ -3,6 +3,7 @@ import {
   Inject,
   NotFoundException,
   BadRequestException,
+  UnprocessableEntityException,
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
@@ -16,11 +17,7 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
 import { PrismaService } from '../prisma.service';
-import {
-  S3_CLIENT,
-  getBucketName,
-  stableSigning,
-} from '../common/s3.provider';
+import { S3_CLIENT, getBucketName, stableSigning } from '../common/s3.provider';
 import { FirebaseService } from '../firebase/firebase.service';
 import { FacesService } from '../faces/faces.service';
 import { PRESIGN_EXPIRY } from '../common/constants';
@@ -98,7 +95,7 @@ export class PhotosService implements OnModuleInit {
         failed: 0,
         total: 0,
         message: '',
-      }
+      };
     }
     return batch;
   }
@@ -112,13 +109,76 @@ export class PhotosService implements OnModuleInit {
     return photo;
   }
 
+  private spawnUploadWorker(
+    batchId: string,
+    userId: string,
+    files: Express.Multer.File[],
+  ): Worker {
+    return new Worker(path.join(__dirname, 'upload.worker.js'), {
+      workerData: {
+        batchId,
+        userId,
+        files: files.map((f) => ({
+          path: f.path,
+          filename: f.originalname,
+          mimeType: f.mimetype,
+          size: f.size,
+        })),
+        bucket: getBucketName(),
+        region: process.env.AWS_REGION || 'us-east-1',
+        r2AccountId: process.env.R2_ACCOUNT_ID,
+      },
+    });
+  }
+
+  private detectFacesInBackground(userId: string, photoIds: string[]) {
+    this.facesService
+      .detectBatch(userId, photoIds)
+      .catch((err: Error) =>
+        this.logger.error(`Face detection failed: ${err.message}`),
+      );
+  }
+
+  async uploadOne(
+    userId: string,
+    file: Express.Multer.File,
+  ): Promise<{ id: string; duplicate: boolean }> {
+    const result = await new Promise<{
+      photoIds: string[];
+      existingIds: string[];
+      lastError: string;
+    }>((resolve, reject) => {
+      const worker = this.spawnUploadWorker(crypto.randomUUID(), userId, [
+        file,
+      ]);
+      worker.on('message', (msg: any) => {
+        if (msg.type === 'done') resolve(msg);
+        else if (msg.type === 'error') reject(new Error(msg.message));
+      });
+      worker.on('error', reject);
+      worker.on('exit', (code) => {
+        if (code !== 0) reject(new Error(`Upload worker exited with ${code}`));
+      });
+    });
+
+    if (result.photoIds.length > 0) {
+      this.detectFacesInBackground(userId, result.photoIds);
+      return { id: result.photoIds[0], duplicate: false };
+    }
+    if (result.existingIds.length > 0)
+      return { id: result.existingIds[0], duplicate: true };
+    throw new UnprocessableEntityException(
+      result.lastError || 'No se pudo procesar el archivo',
+    );
+  }
+
+  // ponytail: legacy batch flow kept only for app v1.3 and older; delete it
+  // (plus upload-batch endpoints and _batches) once v1.4 is installed.
   // eslint-disable-next-line @typescript-eslint/require-await
   async startBatchUpload(
     userId: string,
     files: Express.Multer.File[],
   ): Promise<string> {
-    const bucket = getBucketName();
-    const region = process.env.AWS_REGION || 'us-east-1';
     const batchId = crypto.randomUUID();
 
     this._batches.set(batchId, {
@@ -130,31 +190,9 @@ export class PhotosService implements OnModuleInit {
       message: 'Iniciando subida…',
     });
 
-    const workerFiles = files.map((f) => ({
-      path: f.path,
-      filename: f.originalname,
-      mimeType: f.mimetype,
-      size: f.size,
-    }));
-
-    const r2AccountId = process.env.R2_ACCOUNT_ID;
-    const workerPath = path.join(__dirname, 'upload.worker.js');
-    this.logger.log(
-      `Spawning upload worker: ${workerPath}, files: ${files.length}`,
-    );
-
     let worker: Worker;
     try {
-      worker = new Worker(workerPath, {
-        workerData: {
-          batchId,
-          userId,
-          files: workerFiles,
-          bucket,
-          region,
-          r2AccountId,
-        },
-      });
+      worker = this.spawnUploadWorker(batchId, userId, files);
     } catch (err) {
       this.logger.error(`Failed to create worker: ${(err as Error).message}`);
       const b = this._batches.get(batchId);
@@ -194,20 +232,8 @@ export class PhotosService implements OnModuleInit {
           .catch((err) =>
             this.logger.error('Firebase notification error', err),
           );
-        if (msg.photoIds?.length > 0) {
-          this.facesService
-            .detectBatch(userId, msg.photoIds)
-            .then((result) =>
-              this.logger.log(
-                `Face detection completed for batch ${msg.batchId}: ${result.facesFound} faces found in ${result.processed} photos`,
-              ),
-            )
-            .catch((err) =>
-              this.logger.error(
-                `Face detection failed for batch ${msg.batchId}: ${err.message}`,
-              ),
-            );
-        }
+        if (msg.photoIds?.length > 0)
+          this.detectFacesInBackground(userId, msg.photoIds);
       } else if (msg.type === 'error') {
         this._batches.set(msg.batchId, {
           ...b,
@@ -235,6 +261,7 @@ export class PhotosService implements OnModuleInit {
 
     worker.on('exit', (code) => {
       this.logger.log(`Worker for batch ${batchId} exited with code ${code}`);
+      setTimeout(() => this._batches.delete(batchId), 10 * 60 * 1000);
     });
 
     return batchId;
@@ -298,7 +325,6 @@ export class PhotosService implements OnModuleInit {
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       orderBy: { createdAt: 'desc' },
     });
-
 
     const results = await Promise.all(
       dbPhotos.map(async (photo) => {
@@ -463,12 +489,14 @@ export class PhotosService implements OnModuleInit {
     });
     return updated.tags;
   }
-  async getThisDayPhotos(userId: string, person?: string) {
+  async getThisDayPhotos(userId: string, person?: string, date?: string) {
     const bucket = getBucketName();
 
-    const today = new Date();
-    const month = today.getMonth() + 1;
-    const day = today.getDate();
+    const now = new Date();
+    const [thisYear, month, day] =
+      date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+        ? date.split('-').map(Number)
+        : [now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()];
 
     let photos: Array<{
       id: string;
@@ -492,7 +520,7 @@ export class PhotosService implements OnModuleInit {
           AND f."ignored" = false
           AND EXTRACT(MONTH FROM p."createdAt") = ${month}::int
           AND EXTRACT(DAY FROM p."createdAt") = ${day}::int
-          AND EXTRACT(YEAR FROM p."createdAt") != ${today.getFullYear()}::int
+          AND EXTRACT(YEAR FROM p."createdAt") != ${thisYear}::int
         ORDER BY p."createdAt" DESC
       `;
     } else {
@@ -504,7 +532,7 @@ export class PhotosService implements OnModuleInit {
           AND "private" = false
           AND EXTRACT(MONTH FROM "createdAt") = ${month}::int
           AND EXTRACT(DAY FROM "createdAt") = ${day}::int
-          AND EXTRACT(YEAR FROM "createdAt") != ${today.getFullYear()}::int
+          AND EXTRACT(YEAR FROM "createdAt") != ${thisYear}::int
         ORDER BY "createdAt" DESC
       `;
     }
@@ -539,7 +567,7 @@ export class PhotosService implements OnModuleInit {
             id: photo.id,
             filename: photo.filename,
             count: yearPhotos.length,
-            yearsAgo: today.getFullYear() - year,
+            yearsAgo: thisYear - year,
           };
         }),
     );

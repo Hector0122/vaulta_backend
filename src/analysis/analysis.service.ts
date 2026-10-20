@@ -2,11 +2,7 @@ import { Injectable, Inject, NotFoundException, Logger } from '@nestjs/common';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PrismaService } from '../prisma.service';
-import {
-  S3_CLIENT,
-  getBucketName,
-  stableSigning,
-} from '../common/s3.provider';
+import { S3_CLIENT, getBucketName, stableSigning } from '../common/s3.provider';
 import { computePerceptualHash } from '../common/image-analysis';
 
 @Injectable()

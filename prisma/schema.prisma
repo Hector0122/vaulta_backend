@@ -61,6 +61,7 @@ model Photo {
   blurred   Boolean  @default(false)
   blurScore Float?
   perceptualHash String?
+  contentHash String?
   deletedAt DateTime?
   private   Boolean  @default(false)
 
@@ -78,6 +79,7 @@ model Photo {
   @@index([userId, blurred])
   @@index([tags], type: Gin)
   @@index([perceptualHash])
+  @@index([userId, contentHash])
 }
 
 model Face {

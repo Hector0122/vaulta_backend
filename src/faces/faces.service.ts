@@ -861,69 +861,6 @@ export class FacesService implements OnModuleInit {
     return { photos: results, nextToken };
   }
 
-  async getThisDayByPerson(userId: string, personName: string) {
-    const today = new Date();
-    const month = today.getMonth() + 1;
-    const day = today.getDate();
-
-    const photos: Array<{
-      id: string;
-      createdAt: Date;
-      s3Key: string;
-      thumbS3Key: string | null;
-      filename: string;
-    }> = await this.prisma.$queryRaw`
-      SELECT DISTINCT p.id, p."createdAt", p."s3Key", p."thumbS3Key", p.filename
-      FROM "Photo" p
-      INNER JOIN "Face" f ON f."photoId" = p.id
-      WHERE p."userId" = ${userId}
-        AND p."deletedAt" IS NULL
-        AND p."private" = false
-        AND f."personName" = ${personName}
-        AND f."confirmed" = true
-        AND f."ignored" = false
-        AND EXTRACT(MONTH FROM p."createdAt") = ${month}::int
-        AND EXTRACT(DAY FROM p."createdAt") = ${day}::int
-        AND EXTRACT(YEAR FROM p."createdAt") != ${today.getFullYear()}::int
-      ORDER BY p."createdAt" DESC
-    `;
-
-    const grouped = new Map<number, typeof photos>();
-    for (const p of photos) {
-      const year = new Date(p.createdAt).getFullYear();
-      const existing = grouped.get(year) || [];
-      existing.push(p);
-      grouped.set(year, existing);
-    }
-
-    const bucket =
-      process.env.R2_BUCKET_NAME || process.env.AWS_S3_BUCKET || '';
-    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
-
-    return Promise.all(
-      Array.from(grouped.entries())
-        .sort(([a], [b]) => b - a)
-        .map(async ([year, yearPhotos]) => {
-          const photo = yearPhotos[0];
-          const thumbKey = photo.thumbS3Key || photo.s3Key;
-          const uri = await getSignedUrl(
-            this.s3,
-            new GetObjectCommand({ Bucket: bucket, Key: thumbKey }),
-            stableSigning(),
-          );
-          return {
-            year,
-            uri,
-            id: photo.id,
-            filename: photo.filename,
-            person: personName,
-            count: yearPhotos.length,
-            yearsAgo: today.getFullYear() - year,
-          };
-        }),
-    );
-  }
-
   async getStats(userId: string): Promise<{
     totalFaces: number;
     peopleCount: number;
@@ -931,7 +868,10 @@ export class FacesService implements OnModuleInit {
   }> {
     const [totalFaces, peopleResult, allPersonData] = await Promise.all([
       this.prisma.face.count({
-        where: { photo: { userId, deletedAt: null, private: false }, ignored: false },
+        where: {
+          photo: { userId, deletedAt: null, private: false },
+          ignored: false,
+        },
       }),
       this.prisma.face.groupBy({
         by: ['personName'],
@@ -1233,9 +1173,7 @@ export class FacesService implements OnModuleInit {
     return Math.sqrt(sum);
   }
 
-  async cleanupPrivateFaces(
-    userId: string,
-  ): Promise<{ deleted: number }> {
+  async cleanupPrivateFaces(userId: string): Promise<{ deleted: number }> {
     const result = await this.prisma.face.deleteMany({
       where: {
         photo: { userId, private: true },

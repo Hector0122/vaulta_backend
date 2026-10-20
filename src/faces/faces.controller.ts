@@ -173,19 +173,6 @@ export class FacesController {
     );
   }
 
-  @Get('this-day')
-  async getThisDayByPerson(
-    @CurrentUser() user: { id: string },
-    @Query('person') person: string,
-  ) {
-    if (!person || typeof person !== 'string')
-      throw new BadRequestException('person query param is required');
-    const sanitized = sanitize(person, 50);
-    if (!sanitized)
-      throw new BadRequestException('person is empty after sanitization');
-    return this.facesService.getThisDayByPerson(user.id, sanitized);
-  }
-
   @Get('stats')
   async getStats(@CurrentUser() user: { id: string }) {
     return this.facesService.getStats(user.id);

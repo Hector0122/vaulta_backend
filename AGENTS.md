@@ -9,7 +9,6 @@ Photo-sharing app: React Native frontend (Android) + NestJS backend + Neon (Post
 ```
 PersonalProject/
 ├── AI_PLAN.md
-├── FEATURES.md
 ├── vaulta_frontend/                # React Native 0.83.1
 └── vaulta_backend/                 # NestJS 11 API <-- YOU ARE HERE
     ├── src/

@@ -114,8 +114,7 @@ export class PhotosController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('No file provided');
-    const batchId = await this.photosService.startBatchUpload(user.id, [file]);
-    return { batchId };
+    return this.photosService.uploadOne(user.id, file);
   }
 
   @Post('photos/upload-batch')
@@ -144,10 +143,12 @@ export class PhotosController {
   async getThisDayPhotos(
     @CurrentUser() user: { id: string },
     @Query('person') person?: string,
+    @Query('date') date?: string,
   ) {
     return this.photosService.getThisDayPhotos(
       user.id,
       person ? sanitize(person, 50) : undefined,
+      date,
     );
   }
 
@@ -179,11 +180,7 @@ export class PhotosController {
   // usaba y dejaba el JWT completo en logs de servidor/proxy — eliminado.
   @SkipAuth()
   @Get('photos/:id/stream')
-  async streamPhoto(
-    @Param('id') id: string,
-    @Res() res: any,
-    @Req() req: any,
-  ) {
+  async streamPhoto(@Param('id') id: string, @Res() res: any, @Req() req: any) {
     let userId: string;
     const secret = process.env.JWT_SECRET;
     if (!secret) throw new UnauthorizedException('JWT_SECRET not configured');

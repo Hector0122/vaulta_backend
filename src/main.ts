@@ -12,6 +12,8 @@ async function bootstrap() {
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: false,
   });
-  await app.listen(process.env.PORT ?? 3000);
+  const server = await app.listen(process.env.PORT ?? 3000);
+  // Uploads now wait for processing; Node's 5-min default cuts big videos.
+  server.requestTimeout = 10 * 60 * 1000;
 }
 void bootstrap();

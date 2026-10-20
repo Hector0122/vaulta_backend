@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'worker_threads';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { PrismaClient } from '@prisma/client';
@@ -99,9 +99,19 @@ async function run(input: UploadWorkerInput) {
 
   const CONCURRENCY = 5;
   const createdPhotoIds: string[] = [];
+  const existingPhotoIds: string[] = [];
 
   async function processOne(file: (typeof files)[0]) {
     const buffer = fs.readFileSync(file.path);
+    const contentHash = createHash('sha256').update(buffer).digest('hex');
+    const existing = await prisma.photo.findFirst({
+      where: { userId, contentHash, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) {
+      existingPhotoIds.push(existing.id);
+      return;
+    }
     const EXIF_DATE_TAGS = [
       'DateTimeOriginal',
       'CreateDate',
@@ -255,6 +265,7 @@ async function run(input: UploadWorkerInput) {
           mimeType: file.mimeType,
           size: file.size,
           createdAt: photoDate,
+          contentHash,
           userId,
         },
       });
@@ -312,6 +323,7 @@ async function run(input: UploadWorkerInput) {
           size: file.size,
           perceptualHash,
           createdAt: photoDate,
+          contentHash,
           userId,
         },
       });
@@ -350,6 +362,8 @@ async function run(input: UploadWorkerInput) {
     completed,
     failed,
     photoIds: createdPhotoIds,
+    existingIds: existingPhotoIds,
+    lastError,
     message: `Subida completada: ${completed} archivo(s) subido(s)${failed > 0 ? `, ${failed} fallaron: ${lastError}` : ''}`,
   });
 }
