@@ -362,6 +362,8 @@ export class PhotosService implements OnModuleInit {
     url: string;
     largeUri: string | null;
     albums: { id: string; name: string; vault: boolean }[];
+    favorite: boolean;
+    private: boolean;
   }> {
     const bucket = getBucketName();
     const photo = await this.findOwnedPhoto(photoId, userId);
@@ -377,7 +379,13 @@ export class PhotosService implements OnModuleInit {
       }),
     ]);
 
-    return { url, largeUri, albums };
+    return {
+      url,
+      largeUri,
+      albums,
+      favorite: photo.favorite,
+      private: photo.private,
+    };
   }
 
   async getPhotoUrl(userId: string, photoId: string): Promise<string> {
