@@ -1,6 +1,7 @@
 import { parentPort, workerData } from 'worker_threads';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { PrismaClient } from '@prisma/client';
@@ -160,7 +161,7 @@ async function run(input: UploadWorkerInput) {
 
     const year = photoDate.getFullYear();
     const month = MONTHS[photoDate.getMonth()];
-    const dateStr = fmtDate(photoDate);
+    const dateStr = `${fmtDate(photoDate)}_${randomUUID().slice(0, 8)}`;
 
     const isVideo = file.mimeType.startsWith('video/');
 
@@ -261,6 +262,7 @@ async function run(input: UploadWorkerInput) {
     } else {
       const thumbKey = `thumbs/${userId}/fotos/${year}/${month}/${dateStr}.jpg`;
       const thumbBuffer = await sharp(buffer)
+        .rotate()
         .resize(THUMB_RESIZE)
         .jpeg({ quality: THUMB_QUALITY })
         .toBuffer();
@@ -276,6 +278,7 @@ async function run(input: UploadWorkerInput) {
 
       const largeKey = `fotos/${userId}/${year}/${month}/${dateStr}.jpg`;
       const largeBuffer = await sharp(buffer)
+        .rotate()
         .resize(LARGE_RESIZE, LARGE_RESIZE, {
           fit: 'inside',
           withoutEnlargement: true,

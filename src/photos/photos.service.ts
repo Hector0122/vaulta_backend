@@ -16,10 +16,14 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
 import { PrismaService } from '../prisma.service';
-import { S3_CLIENT, getBucketName } from '../common/s3.provider';
+import {
+  S3_CLIENT,
+  getBucketName,
+  stableSigning,
+} from '../common/s3.provider';
 import { FirebaseService } from '../firebase/firebase.service';
 import { FacesService } from '../faces/faces.service';
-import { PRESIGN_EXPIRY, PRESIGN_CACHE_TTL_MS } from '../common/constants';
+import { PRESIGN_EXPIRY } from '../common/constants';
 
 @Injectable()
 export class PhotosService implements OnModuleInit {
@@ -34,43 +38,12 @@ export class PhotosService implements OnModuleInit {
       message: string;
     }
   >();
-  private urlCache = new Map<string, { url: string; expiresAt: number }>();
-
-  private getCachedUrl(key: string): string | null {
-    const entry = this.urlCache.get(key);
-    if (entry && entry.expiresAt > Date.now()) return entry.url;
-    this.urlCache.delete(key);
-    return null;
-  }
-
-  private setCachedUrl(key: string, url: string) {
-    this.urlCache.set(key, {
-      url,
-      expiresAt: Date.now() + PRESIGN_CACHE_TTL_MS,
-    });
-    if (this.urlCache.size > 5000) {
-      const now = Date.now();
-      for (const [k, v] of this.urlCache) {
-        if (v.expiresAt <= now) this.urlCache.delete(k);
-      }
-    }
-  }
-
-  private async getPresignedUrl(
-    bucket: string,
-    key: string,
-    expiresIn: number,
-  ): Promise<string> {
-    const cacheKey = `${bucket}:${key}`;
-    const cached = this.getCachedUrl(cacheKey);
-    if (cached) return cached;
-    const url = await getSignedUrl(
+  private getPresignedUrl(bucket: string, key: string): Promise<string> {
+    return getSignedUrl(
       this.s3,
       new GetObjectCommand({ Bucket: bucket, Key: key }),
-      { expiresIn },
+      stableSigning(),
     );
-    this.setCachedUrl(cacheKey, url);
-    return url;
   }
 
   constructor(
@@ -322,17 +295,16 @@ export class PhotosService implements OnModuleInit {
       orderBy: { createdAt: 'desc' },
     });
 
-    const presignExpiry = PRESIGN_EXPIRY;
 
     const results = await Promise.all(
       dbPhotos.map(async (photo) => {
         const thumbKey = photo.thumbS3Key;
         const largeKey = photo.largeS3Key;
         const [uri, fullUri, largeUri] = await Promise.all([
-          this.getPresignedUrl(bucket, thumbKey || photo.s3Key, presignExpiry),
-          this.getPresignedUrl(bucket, photo.s3Key, presignExpiry),
+          this.getPresignedUrl(bucket, thumbKey || photo.s3Key),
+          this.getPresignedUrl(bucket, photo.s3Key),
           largeKey
-            ? this.getPresignedUrl(bucket, largeKey, presignExpiry)
+            ? this.getPresignedUrl(bucket, largeKey)
             : Promise.resolve(null),
         ]);
         return {
@@ -369,9 +341,9 @@ export class PhotosService implements OnModuleInit {
     const photo = await this.findOwnedPhoto(photoId, userId);
 
     const [url, largeUri, albums] = await Promise.all([
-      this.getPresignedUrl(bucket, photo.s3Key, PRESIGN_EXPIRY),
+      this.getPresignedUrl(bucket, photo.s3Key),
       photo.largeS3Key
-        ? this.getPresignedUrl(bucket, photo.largeS3Key, PRESIGN_EXPIRY)
+        ? this.getPresignedUrl(bucket, photo.largeS3Key)
         : Promise.resolve(null),
       this.prisma.album.findMany({
         where: { userId, photos: { some: { id: photoId } } },
@@ -392,7 +364,7 @@ export class PhotosService implements OnModuleInit {
     const bucket = getBucketName();
     const photo = await this.findOwnedPhoto(photoId, userId);
 
-    return this.getPresignedUrl(bucket, photo.s3Key, PRESIGN_EXPIRY);
+    return this.getPresignedUrl(bucket, photo.s3Key);
   }
 
   async getPhotoStream(userId: string, photoId: string, range?: string) {
@@ -423,7 +395,11 @@ export class PhotosService implements OnModuleInit {
     if (photo.private)
       throw new BadRequestException('No se puede compartir una foto privada');
 
-    return this.getPresignedUrl(bucket, photo.s3Key, expiresIn);
+    return getSignedUrl(
+      this.s3,
+      new GetObjectCommand({ Bucket: bucket, Key: photo.s3Key }),
+      { expiresIn },
+    );
   }
 
   async toggleFavorite(userId: string, photoId: string): Promise<boolean> {
@@ -545,10 +521,10 @@ export class PhotosService implements OnModuleInit {
           const thumbKey = photo.thumbS3Key || photo.s3Key;
           const largeKey = photo.largeS3Key;
           const [uri, fullUri, largeUri] = await Promise.all([
-            this.getPresignedUrl(bucket, thumbKey, PRESIGN_EXPIRY),
-            this.getPresignedUrl(bucket, photo.s3Key, PRESIGN_EXPIRY),
+            this.getPresignedUrl(bucket, thumbKey),
+            this.getPresignedUrl(bucket, photo.s3Key),
             largeKey
-              ? this.getPresignedUrl(bucket, largeKey, PRESIGN_EXPIRY)
+              ? this.getPresignedUrl(bucket, largeKey)
               : Promise.resolve(null),
           ]);
           return {
@@ -798,10 +774,10 @@ export class PhotosService implements OnModuleInit {
           ? this.resolveS3Key(photo.largeS3Key, photo.s3Key, 'large')
           : null;
         const [uri, fullUri, largeUri] = await Promise.all([
-          this.getPresignedUrl(bucket, thumbKey, PRESIGN_EXPIRY),
-          this.getPresignedUrl(bucket, fullKey, PRESIGN_EXPIRY),
+          this.getPresignedUrl(bucket, thumbKey),
+          this.getPresignedUrl(bucket, fullKey),
           largeKey
-            ? this.getPresignedUrl(bucket, largeKey, PRESIGN_EXPIRY)
+            ? this.getPresignedUrl(bucket, largeKey)
             : Promise.resolve(null),
         ]);
         return {

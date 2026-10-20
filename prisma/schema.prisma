@@ -71,16 +71,12 @@ model Photo {
   albums    Album[]
   faces     Face[]
 
-  @@index([userId])
   @@index([userId, favorite])
   @@index([userId, createdAt])
-  @@index([userId, deletedAt])
   @@index([userId, deletedAt, createdAt])
   @@index([userId, deletedAt, private])
   @@index([userId, blurred])
-  @@index([filename])
-  @@index([mimeType])
-  @@index([tags])
+  @@index([tags], type: Gin)
   @@index([perceptualHash])
 }
 
@@ -100,7 +96,6 @@ model Face {
 
   @@index([photoId])
   @@index([personName])
-  @@index([confirmed, ignored])
   @@index([confirmed, ignored, personName])
   @@index([createdAt])
 }

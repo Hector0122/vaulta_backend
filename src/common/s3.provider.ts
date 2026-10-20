@@ -48,3 +48,11 @@ export const s3Provider = {
   provide: S3_CLIENT,
   useFactory: (): S3Client => createS3Client(),
 };
+
+// Signing at the start of the UTC day keeps each URL identical all day so the
+// app's image cache keeps hitting; 48h expiry leaves it valid 24h+ after.
+export function stableSigning() {
+  const signingDate = new Date();
+  signingDate.setUTCHours(0, 0, 0, 0);
+  return { expiresIn: 48 * 60 * 60, signingDate };
+}

@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { S3_CLIENT, getBucketName } from '../common/s3.provider';
-import { PRESIGN_EXPIRY } from '../common/constants';
+import {
+  S3_CLIENT,
+  getBucketName,
+  stableSigning,
+} from '../common/s3.provider';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
@@ -47,7 +50,7 @@ export class AlbumsService {
                 Bucket: bucket,
                 Key: p.thumbS3Key || p.s3Key,
               }),
-              { expiresIn: PRESIGN_EXPIRY },
+              stableSigning(),
             ),
           );
         }),
@@ -96,7 +99,7 @@ export class AlbumsService {
                 Bucket: bucket,
                 Key: p.thumbS3Key || p.s3Key,
               }),
-              { expiresIn: PRESIGN_EXPIRY },
+              stableSigning(),
             ),
           );
         }),
@@ -162,7 +165,6 @@ export class AlbumsService {
     const bucket = process.env.R2_BUCKET_NAME || process.env.AWS_S3_BUCKET;
     if (!bucket) return vault as any;
 
-    const presignExpiry = PRESIGN_EXPIRY;
     const results = await Promise.all(
       vault.photos.map(async (photo: any) => {
         const thumbKey = photo.thumbS3Key;
@@ -172,7 +174,7 @@ export class AlbumsService {
             Bucket: bucket,
             Key: thumbKey || photo.s3Key,
           }),
-          { expiresIn: presignExpiry },
+          stableSigning(),
         );
         return {
           uri,
@@ -302,7 +304,6 @@ export class AlbumsService {
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     });
 
-    const presignExpiry = PRESIGN_EXPIRY;
     const results = await Promise.all(
       photos.map(async (photo) => {
         const thumbKey = photo.thumbS3Key;
@@ -314,7 +315,7 @@ export class AlbumsService {
               Bucket: bucket,
               Key: thumbKey || photo.s3Key,
             }),
-            { expiresIn: presignExpiry },
+            stableSigning(),
           ),
           getSignedUrl(
             this.s3,
@@ -322,7 +323,7 @@ export class AlbumsService {
               Bucket: bucket,
               Key: photo.s3Key,
             }),
-            { expiresIn: presignExpiry },
+            stableSigning(),
           ),
           largeKey
             ? getSignedUrl(
@@ -331,7 +332,7 @@ export class AlbumsService {
                   Bucket: bucket,
                   Key: largeKey,
                 }),
-                { expiresIn: presignExpiry },
+                stableSigning(),
               )
             : Promise.resolve(null),
         ]);

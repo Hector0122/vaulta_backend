@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { PrismaService } from '../prisma.service';
-import { S3_CLIENT } from '../common/s3.provider';
+import { S3_CLIENT, stableSigning } from '../common/s3.provider';
 import { spawn } from 'child_process';
 import { Worker } from 'worker_threads';
 import * as fs from 'fs';
@@ -709,7 +709,7 @@ export class FacesService implements OnModuleInit {
           thumbnailUri = await getSignedUrl(
             this.s3,
             new GetObjectCommand({ Bucket: bucket, Key: thumbKey }),
-            { expiresIn: 604800 },
+            stableSigning(),
           );
         }
         return {
@@ -793,7 +793,7 @@ export class FacesService implements OnModuleInit {
         const uri = await getSignedUrl(
           this.s3,
           new GetObjectCommand({ Bucket: bucket, Key: thumbKey }),
-          { expiresIn: 604800 },
+          stableSigning(),
         );
         return { id: f.id, photoId: f.photoId, photoUri: uri, suggestions };
       }),
@@ -840,7 +840,7 @@ export class FacesService implements OnModuleInit {
         const uri = await getSignedUrl(
           this.s3,
           new GetObjectCommand({ Bucket: bucket, Key: thumbKey }),
-          { expiresIn: 604800 },
+          stableSigning(),
         );
         return {
           uri,
@@ -909,7 +909,7 @@ export class FacesService implements OnModuleInit {
           const uri = await getSignedUrl(
             this.s3,
             new GetObjectCommand({ Bucket: bucket, Key: thumbKey }),
-            { expiresIn: 604800 },
+            stableSigning(),
           );
           return {
             year,
@@ -1171,7 +1171,7 @@ export class FacesService implements OnModuleInit {
         const uri = await getSignedUrl(
           this.s3,
           new GetObjectCommand({ Bucket: bucket, Key: thumbKey }),
-          { expiresIn: 604800 },
+          stableSigning(),
         );
         return {
           faceId: m.id,

@@ -1,6 +1,6 @@
 export const PRESIGN_EXPIRY = 3600;
 
-export const THUMB_RESIZE = 300;
+export const THUMB_RESIZE = 400;
 export const THUMB_QUALITY = 70;
 
 export const LARGE_RESIZE = 2048;
@@ -26,4 +26,3 @@ export const FACE_DETECT_DEFAULT_LIMIT = 15;
 export const FACE_DETECT_MAX_LIMIT = 50;
 export const FACE_INGEST_MAX_PHOTOS = 100;
 
-export const PRESIGN_CACHE_TTL_MS = 55 * 60 * 1000;
